@@ -1,3 +1,4 @@
+--ЧАСТЬ 1
 -- 2. 
 create schema raw_data;
 
@@ -14,30 +15,34 @@ CREATE TABLE raw_data.sales(
 );
 
 -- 4. 
-COPY raw_data.sales FROM 'C:/univer/Y practicum postgre/cars.csv' WITH CSV HEADER NULL 'null'; 
+COPY raw_data.sales FROM 'C:/univer/Y_practicum_postgre/cars.csv' WITH CSV HEADER NULL 'null'; 
 
 -- 7. 
-create schema car_shop
+create schema car_shop;
 
 CREATE TABLE car_shop.person(
 id serial primary key, -- ключ
 name varchar(100) not null, -- ФИО не более 100 символов
 phone varchar(50) -- телефоны записывают в разных стандартах, поэтому храним как строку
 );
-
-CREATE TABLE car_shop.auto(
-auto_id serial primary key, -- ключ
-brand_id INTEGER REFERENCES car_shop.brands,
-name_auto varchar(50) not null, -- не существует марок машин более 50 символов
-colour varchar(20) not null check (colour Not Like '% %'), -- не существует цветов более чем 20 символов
-gasoline_consumption decimal(4, 2) -- расход топлива не может быть трезначным (количество цифр целой части 2)
--- В базе все значения округлены до сотых. Из-за отсутствия иных требований примем это за базу
+CREATE TABLE car_shop.colour(
+colour_id serial primary key,
+colour_name varchar(20) check (colour_name Not Like '% %') -- не существует цветов более чем 20 символов
 );
 
 CREATE TABLE IF NOT EXISTS car_shop.brands(
 brand_id serial PRIMARY KEY,
 brand_name VARCHAR(50) UNIQUE check (brand_name  Not Like '% %'), -- не существует названий брендов длиной более 50 символов, в названии бренда могут быть и цифры, и буквы, поэтому выбираем varchar(50) и только уникальные значения	
 brand_origin_name VARCHAR(40)  -- не существует названий стран более 40 символов 
+);
+
+CREATE TABLE car_shop.auto(
+auto_id serial primary key, -- ключ
+brand_id INTEGER REFERENCES car_shop.brands,
+name_auto varchar(50) not null, -- не существует марок машин более 50 символов
+colour_id integer references car_shop.colour, -- 
+gasoline_consumption decimal(4, 2) -- расход топлива не может быть трезначным (количество цифр целой части 2)
+-- В базе все значения округлены до сотых. Из-за отсутствия иных требований примем это за базу
 );
 
 CREATE TABLE car_shop.sales(
@@ -50,33 +55,40 @@ discount int2 DEFAULT 0 check (discount <= 100)-- скидка в базе пр�
 );
 
 --8.
-INSERT INTO car_shop.person(name, phone)
-(SELECT DISTINCT (person, phone )
+INSERT INTO car_shop.person(name, phone)
+(SELECT DISTINCT person, phone
 FROM raw_data.sales);
 
-INSERT INTO car_shop.brands(brand_name , brand_origin_name )
-(SELECT DISTINCT split_part(auto, ' ' ,1), brand_origin
+INSERT INTO car_shop.colour(colour_name)
+(SELECT DISTINCT SPLIT_PART(auto, ', ', 2)
 FROM raw_data.sales);
 
-INSERT INTO car_shop.auto(brand_id, name_auto , colour , gasoline_consumption )
+INSERT INTO car_shop.brands(brand_name , brand_origin_name )
+(SELECT DISTINCT split_part(auto, ' ' , 1), brand_origin
+FROM raw_data.sales);
+
+INSERT INTO car_shop.auto(brand_id, name_auto , colour_id , gasoline_consumption )
 (SELECT DISTINCT
  brand_id
 , split_part(substr(auto,strpos(auto,' ')+1),',',1)  
-, SPLIT_PART(auto, ', ', 2)
+, colour_id
 , gasoline_consumption 
 FROM raw_data.sales as sale
-INNER JOIN car_shop.brands AS brands ON split_part(sale.auto, ' ' , 1) = brands.brand_name);
+INNER JOIN car_shop.brands AS brands ON split_part(sale.auto, ' ' , 1) = brands.brand_name
+INNER JOIN car_shop.colour as colour ON colour.colour_name = SPLIT_PART(auto, ', ', 2));
 
 INSERT INTO car_shop.sales(person_id, auto_id, price, date_sale, discount)
 (SELECT person.id, auto.auto_id, price, sale.date, discount
 FROM raw_data.sales as sale
 LEFT JOIN car_shop.person as person ON sale.person = person.name
-LEFT JOIN car_shop.auto as auto ON (split_part(substr(auto,strpos(auto,' ')+1),',',1) = auto.name_auto 
-    and SPLIT_PART(auto, ', ', 2) = auto.colour)
+LEFT JOIN car_shop.auto as auto ON split_part(substr(auto,strpos(auto,' ') + 1), ',' ,1) = auto.name_auto 
+LEFT JOIN car_shop.colour as colour ON colour.colour_id = auto.colour_id
+LEFT JOIN car_shop.brands as brand ON brand.brand_id = auto.brand_id
+WHERE SPLIT_PART(auto, ', ', 2) = colour.colour_name and split_part(auto, ' ' , 1) = brand.brand_name
 );
 
 --ЧАСТЬ 2
--- 1
+--1
 SELECT ROUND((1 - count(gasoline_consumption)/count(*)::float)*100) AS nulls_percentage_gasoline_consumption 
 FROM car_shop.auto;
 
